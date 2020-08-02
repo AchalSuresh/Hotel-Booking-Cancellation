@@ -1,0 +1,425 @@
+---
+title: "Prediction on Hotel Booking"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+# Loading Library and clearing the workspace
+As always, let's start with clearing the workspace and load required packages. 
+
+```{r}
+rm(list = ls())     # clear the workspace 
+library(ISLR)       # load ISLR data package
+library(tidyverse)
+library(ggplot2)
+
+```
+
+# Loading the data
+```{r}
+hotel_data <- read_csv("hotel_bookings/hotel_bookings.csv")
+```
+
+# Data Preparation
+Examine the dataset.
+
+```{r}
+hotel_data<- as_tibble(hotel_data)
+
+glimpse(hotel_data)
+```
+There are lot of variables needed to be converted to factors
+
+## converitng vraibales to factors
+```{r}
+hotel_data<-hotel_data%>%
+  mutate(
+         hotel=as.factor(hotel),      
+         is_canceled=as.factor(is_canceled),
+         meal=as.factor(meal),
+         country=as.factor(country),
+         market_segment=as.factor(market_segment),
+         distribution_channel=as.factor(distribution_channel),
+         is_repeated_guest=as.factor(is_repeated_guest),
+         reserved_room_type=as.factor(reserved_room_type),
+         assigned_room_type=as.factor(assigned_room_type),
+         deposit_type=as.factor(deposit_type),
+         customer_type=as.factor(customer_type),
+         reservation_status=as.factor(reservation_status),
+         agent=as.factor(agent),
+         company=as.factor(company),
+         arrival_date_day_of_month=as.factor(arrival_date_day_of_month),
+         arrival_date_month=as.factor(arrival_date_month),
+         arrival_date_year=as.factor(arrival_date_year)
+
+         )
+```
+
+```{r}
+hotel_data = na.omit(hotel_data)
+
+```
+
+
+## Exploring the data further
+
+```{r}
+head(hotel_data)
+tail(hotel_data)
+summary(hotel_data)
+nrow(hotel_data)    # 119390
+ncol(hotel_data)    # 32
+
+```
+## Exploring the number of countries invloved
+
+```{r}
+hotel_data%>%
+  group_by(country)%>%
+  summarise(num=n())%>%
+  arrange(desc(num))
+```
+
+## Checking for outliers in the adr dataset
+```{r}
+hotel_data%>%
+  filter(adr>1000)
+```
+Since there is only one record above 1000 and has value 5000, updating that value with the mean of adr
+
+```{r}
+hotel_data = hotel_data%>%
+  mutate(adr = replace(adr, adr>1000, mean(adr)))
+
+```
+
+
+```{r}
+hotel_data%>%
+  filter(previous_bookings_not_canceled>60)
+```
+
+
+## Creating new columns
+Creating two new columns to calculate total number of days stayed and total cost
+```{r}
+hotel_data <- hotel_data %>% 
+  mutate(stay_nights_total = stays_in_weekend_nights + stays_in_week_nights,
+       stay_cost_total = adr * stay_nights_total)
+
+summary(hotel_data$stay_nights_total)
+summary(hotel_data$stay_cost_total)
+```
+
+
+# Data Visualization
+## SCatter plot for hotel stay nights and cost total
+
+```{r}
+#scatter plots with total nights and total cost
+ggplot(hotel_data, aes(x=stay_nights_total,y=stay_cost_total))+
+  geom_point(color=2,alpha=1)
+```
+The scatter plot of total number of nights versus total cost of stay and indicating the number of cancellations and hotel type.
+
+There seems to be an increase in number of cancellations with the total stay cost.
+
+```{r}
+ggplot(hotel_data, aes(x=stay_nights_total,y=stay_cost_total,shape=hotel,color=is_canceled))+
+  geom_point(alpha=1)
+```
+```{r}
+ggplot(hotel_data, aes(x=stay_nights_total,y=stay_cost_total,shape=hotel,color=is_canceled))+
+  geom_point()+
+  facet_wrap(~market_segment)
+```
+
+## Bar Plots
+Comparison of year of Arrival date versus cancellation, year 2016 is the one with the most bookings as well as cancellations
+```{r}
+hotel_data%>%
+  ggplot(aes(x=arrival_date_year,fill=is_canceled))+
+  geom_bar()
+```
+
+Box Plot of hotel types
+
+```{r}
+hotel_data%>%
+  ggplot(aes(x=hotel,fill=is_canceled))+
+  geom_bar()
+```
+```{r}
+hotel_data%>%
+  ggplot(aes(x=assigned_room_type,fill=is_canceled))+
+  geom_bar()
+```
+Room A is the most sought out of the rooms.
+
+
+```{r}
+hotel_data%>%
+  ggplot(aes(x=distribution_channel,fill=is_canceled))+
+  geom_bar()
+```
+
+## Histograms
+
+Days in waiting list illustrating cancellations
+```{r}
+hotel_data%>%
+  filter(days_in_waiting_list>1)%>%
+  ggplot(aes(x=days_in_waiting_list,fill=is_canceled))+
+  geom_histogram(binwidth = 10)
+```
+```{r}
+hotel_data%>%
+  ggplot(aes(x=deposit_type,fill=is_canceled))+
+  geom_bar()
+```
+There is a higher proportion of cancellations in the case of non refundabale deposit types, this is certainly an area that was surpirising as less cancellations would be thought when the deposit is non refundable.
+
+
+
+Lead time and hotel cancellations
+
+```{r}
+hotel_data%>%
+  ggplot(aes(x=lead_time,fill=is_canceled))+
+  geom_histogram(binwidth=10,position="stack")
+```
+
+PRevious cancellations vs previous not cancellations
+
+```{r}
+ggplot(hotel_data, aes(x=previous_cancellations,y=previous_bookings_not_canceled,shape=hotel,color=is_canceled))+
+  geom_point(alpha=1)
+```
+
+
+# Modeling
+
+## Training test data split
+
+```{r}
+set.seed(1)   # set a random seed 
+index <- sample(nrow(hotel_data), nrow(hotel_data)*0.3) # random selection of indices. 
+
+hotel_data <- hotel_data %>%
+              filter(market_segment!='Undefined')
+
+test <- hotel_data[index,]       # save 30% as a test dataset
+training <-hotel_data[-index,]   # save the rest as a training set
+
+```
+
+## Variable Selection
+Based on our initial analysis we have decided to move forward with 21 varaibles due to the large nature of the dataset
+```{r}
+colnames(training)
+
+training_1 <- training[c('hotel','is_canceled','lead_time','adults','children','babies','meal',
+                         'market_segment','distribution_channel','is_repeated_guest',
+                         'previous_cancellations','previous_bookings_not_canceled','reserved_room_type',
+                         'deposit_type','days_in_waiting_list','customer_type','adr',
+                         'required_car_parking_spaces','stay_nights_total','stay_cost_total')]
+
+
+
+table(training_1$market_segment)
+```
+
+## Logistic Regression Model
+
+```{r}
+logit_training_model<-glm(is_canceled~.,family="binomial",data=training_1)
+summary(logit_training_model)
+
+test$logit_pred_prob<-predict(logit_training_model,test,type="response")
+test$logit_pred_class<-ifelse(test$logit_pred_prob>0.5,"1","0") 
+glimpse(test)
+table(test$is_canceled==test$logit_pred_class)
+
+
+```
+
+### Confusion Matrix for the model
+
+```{r}
+#Confusion Matrix
+table(test$logit_pred_class,test$is_canceled, dnn=c("predicted","actual"))
+```
+
+
+
+## Naive Bayes Model
+
+```{r}
+library(e1071)   #library needed to use Naive Bayes algorithm, svm algorithm
+
+model_nb = naiveBayes(is_canceled ~ ., data = training_1)
+
+model_nb
+```
+
+
+### Confusion Matrix
+```{r}
+pred_nb = predict(model_nb, as.data.frame(test))
+pred_prob_nb = predict(model_nb, as.data.frame(test), type = "raw")
+
+table(pred_nb,test$is_canceled, dnn=c("predicted","actual"))
+```
+## Classification Tree
+ 
+```{r}
+library(rpart)
+library(rpart.plot)
+training_model<-rpart(is_canceled~.,
+                      data=training_1, 
+                      method="class", 
+                      control=rpart.control(cp=0.03))
+
+rpart.plot(training_model)
+```
+```{r}
+# Accuracy of the model
+test$ct_pred_prob<-predict(training_model,test)[,2]
+test$ct_pred_class<-predict(training_model,test,type="class")
+
+
+table(test$is_canceled==test$ct_pred_class) 
+
+```
+
+### Confusion Matrix for the model
+
+```{r}
+table(test$ct_pred_class,test$is_canceled, dnn=c("predicted","actual"))  # confusion table on test data
+
+```
+
+
+### K cross validation
+
+```{r}
+set.seed(1)   # set a random seed 
+full_tree<-rpart(is_canceled~.,
+                     data=training_1, 
+                     method="class",
+                     control=rpart.control(cp=0, maxdepth = 3))
+
+rpart.plot(full_tree)
+
+
+
+printcp(full_tree)   # xerror, xstd - cross validation results  
+```
+Using `plotcp()`, you can check how the cross-validation error rate changes as the complexity of the model increases. In this chart, x-axis is model complexity, and y-axis is xerror rate (from cross-validation). The bars indicate standard deviation. 
+```{r}
+plotcp(full_tree)    
+```
+
+We may choose the cp value that minimizes cross-validation errors. However, it may not be always the best option. As you can see, the error rate with 4 splits is within the rage of standard deviation of the minimum error rate. You may want to choose the one with 4 splits for the ease of interpretation. 
+```{r}
+min_xerror<-full_tree$cptable[which.min(full_tree$cptable[,"xerror"]),]
+min_xerror
+
+# prune tree with minimum cp value
+min_xerror_tree<-prune(full_tree, cp=min_xerror[1])
+rpart.plot(min_xerror_tree)
+```
+
+Let's consider mim_xerror_tree as the best pruned tree, and get the prediction. 
+```{r}
+bp_tree<-min_xerror_tree
+test$ct_bp_pred_prob<-predict(bp_tree,test)[,2]
+test$ct_bp_pred_class=ifelse(test$ct_bp_pred_prob>0.5,"Yes","No")
+
+table(test$ct_bp_pred_class==test$is_canceled)  # error rate
+table(test$ct_bp_pred_class,test$is_canceled, dnn=c("predicted","actual"))  # confusion table on test data
+```
+
+## Random Forest
+
+```{r}
+library(randomForest)
+
+set.seed(1)
+rf_training_model<-randomForest(is_canceled~.,    # model formula
+                       data=training_1,          # use a training dataset for building a model
+                       ntree=500,                     
+                       cutoff=c(0.5,0.5), 
+                       mtry=2,
+                       importance=TRUE)
+rf_training_model
+```
+
+Tuning the model
+
+```{r}
+set.seed(1)              
+res <- tuneRF(x = training_1%>%select(-is_canceled),
+              y = training_1$is_canceled,mtryStart=2,
+              ntreeTry = 500)
+```
+
+
+Variable Importance
+
+```{r}
+varImpPlot(rf_training_model)  # importance of variables 
+
+```
+
+
+```{r}
+rf_best_model<-randomForest(is_canceled~.,              # model formula
+                       data=training_1,          # use a training dataset for building a model
+                       ntree=500,                     
+                       cutoff=c(0.5,0.5), 
+                       mtry=8,
+                       importance=TRUE)
+rf_best_model
+
+test$rf_pred_prob<-predict(rf_best_model,test,type="prob")[,2]   #use a test dataset for model evaluation
+test$rf_pred_class<-predict(rf_best_model,test,type="class")
+glimpse(test)
+
+table(test$canceled==test$rf_pred_class) 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## ROC curves for all the data
+
+```{r}
+library(pROC)
+
+ct_roc<-roc(test$is_canceled,test$ct_bp_pred_prob,auc=TRUE)
+
+logit_roc<-roc(test$is_canceled,test$logit_pred_prob,auc=TRUE)
+
+nb_roc = roc(test$is_canceled,pred_prob_nb[,2],auc=TRUE)
+rf_roc<-roc(test$is_canceled,test$rf_pred_prob,auc=TRUE)
+
+
+plot(logit_roc,print.auc=TRUE,print.auc.y=.4, col="green")
+plot(rf_roc,print.auc=TRUE,print.auc.y=.1,col="yellow",add=TRUE)
+plot(nb_roc,print.auc=TRUE,print.auc.y=.3, col="red",add=TRUE)
+plot(ct_roc,print.auc=TRUE,print.auc.y=.2, col="blue",add=TRUE)
+
+```
+
