@@ -35,6 +35,4 @@ Accuracy of the model is still a problem. Even though random forest is our best 
 
 
 
-# Credit:
-The project was completed by Achal Suresh, Aditi Baijal, Manyue Chen, Baojing Gou, Yaosong Yu
 
